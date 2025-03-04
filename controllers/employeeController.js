@@ -5,7 +5,7 @@ const mongoose = require('mongoose');
 // Get all employees
 exports.getAllEmployees = async (req, res) => {
   try {
-    const employees = await Employee.find().select('employeeId firstName lastName designation status department title');
+    const employees = await Employee.find().select('employeeId firstName lastName designation status department title profileImage');
     res.status(200).json(employees);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -103,87 +103,59 @@ exports.createEmployee = async (req, res) => {
   
 
 // Update employee information
+
+
+
 exports.updateEmployee = async (req, res) => {
   try {
     const { id } = req.params;
-    const { section, field, value } = req.body;
-    
-    // Find the employee
-    const employee = await Employee.findOne({ 
-      $or: [
-        { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
-        { employeeId: id }
-      ]
-    });
-    
+    const updates = req.body;
+
+    // Identify employee by _id or employeeId
+    const query = mongoose.Types.ObjectId.isValid(id)
+      ? { _id: id }
+      : { employeeId: id };
+
+    // Find employee
+    const employee = await Employee.findOne(query);
     if (!employee) {
-      return res.status(404).json({ message: 'Employee not found' });
+      return res.status(404).json({ message: "Employee not found" });
     }
-    
-    // If updating a basic field
-    if (!section && field) {
-      employee[field] = value;
-      const updatedEmployee = await employee.save();
-      return res.status(200).json(updatedEmployee);
-    }
-    
-    // If updating a section field
-    if (section && field) {
-      // Find the section
-      const sectionIndex = employee.sections.findIndex(s => s.sectionName === section);
-      
-      if (sectionIndex === -1) {
-        // Section doesn't exist, create it
-        // First, check if section exists in the Section model
-        const sectionModel = await Section.findOne({ name: section });
-        
-        if (!sectionModel) {
-          return res.status(404).json({ message: 'Section not found' });
-        }
-        
-        // Create new section data
-        employee.sections.push({
-          sectionId: sectionModel._id,
-          sectionName: sectionModel.name,
-          fields: [{
-            name: field,
-            value: value
-          }]
-        });
-      } else {
-        // Section exists, find field
-        const fieldIndex = employee.sections[sectionIndex].fields.findIndex(f => f.name === field);
-        
-        if (fieldIndex === -1) {
-          // Field doesn't exist, add it
-          employee.sections[sectionIndex].fields.push({
-            name: field,
-            value: value
-          });
-        } else {
-          // Update existing field
-          employee.sections[sectionIndex].fields[fieldIndex].value = value;
-        }
+
+    // Ensure `personalInfo` and `paymentInfo` exist
+    if (!employee.personalInfo) employee.personalInfo = {};
+    if (!employee.paymentInfo) employee.paymentInfo = {};
+
+    // Define which fields belong to personalInfo & paymentInfo
+    const personalInfoFields = ["dateOfBirth", "fathersName", "pan", "contactEmail", "mobile", "address"];
+    const paymentInfoFields = ["accountNumber", "paymentMode", "pfAccountNumber"];
+
+    // Map fields to `personalInfo`
+    personalInfoFields.forEach((field) => {
+      if (updates[field] !== undefined) {
+        employee.personalInfo[field] = updates[field];
       }
-      
-      const updatedEmployee = await employee.save();
-      return res.status(200).json(updatedEmployee);
-    }
-    
-    // If updating entire employee or section
-    const updatedEmployee = await Employee.findOneAndUpdate(
-      { 
-        $or: [
-          { _id: mongoose.Types.ObjectId.isValid(id) ? id : null },
-          { employeeId: id }
-        ]
-      },
-      req.body,
-      { new: true, runValidators: true }
-    );
-    
-    res.status(200).json(updatedEmployee);
+    });
+
+    // Map fields to `paymentInfo`
+    paymentInfoFields.forEach((field) => {
+      if (updates[field] !== undefined) {
+        employee.paymentInfo[field] = updates[field];
+      }
+    });
+
+    // Update other fields normally
+    Object.keys(updates).forEach((key) => {
+      if (!personalInfoFields.includes(key) && !paymentInfoFields.includes(key)) {
+        employee[key] = updates[key];
+      }
+    });
+
+    // Save updated employee
+    const updatedEmployee = await employee.save();
+    return res.status(200).json(updatedEmployee);
   } catch (error) {
+    console.error("Error updating employee:", error);
     res.status(400).json({ message: error.message });
   }
 };
